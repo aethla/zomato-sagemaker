@@ -1,5 +1,7 @@
 import numpy as np
 import torch, os, io, cv2, base64
+from io import BytesIO
+from PIL import Image
 from ultralytics import YOLO
 
 def model_fn(model_dir):
@@ -36,7 +38,12 @@ def output_fn(prediction_output, content_type):
             # Plot results image
             im_bgr = r.plot()  # BGR-order numpy array
             im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)  # RGB-order numpy array
-        
+            im =Image.fromarray(im_rgb[..., ::-1])
+            
+            buffer = BytesIO()
+            im.save(buffer, format='JPEG')
+            buffer.seek(0)
+            
             # Convert BytesIO to base64-encoded string
             image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
 

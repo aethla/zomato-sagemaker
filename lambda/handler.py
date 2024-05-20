@@ -1,4 +1,6 @@
-import json, os, io, boto3
+import json, os, io, boto3, base64
+import numpy as np
+from PIL import Image
 
 
 ENDPOINT_NAME = ""
@@ -12,18 +14,26 @@ s3 = boto3.client('s3', aws_access_key_id=aws_access_key_id, aws_secret_access_k
 def lambda_handler(event, context):
     print(event)
     body = event['body']
-    s3Key = body['s3Key']
+    inputKey = body['inputKey']
+    outputKey = body['outputKey']
     name = body['name']
     bucket_name = 'zomato-project-bucket'
-    image_file_key = f'{s3Key}'
-    fileObj = s3.get_object(Bucket=bucket_name, Key=image_file_key)
+
+    fileObj = s3.get_object(Bucket=bucket_name, Key=inputKey)
     file_content = fileObj['Body'].read()
     response = runtime.invoke_endpoint(
             EndpointName = ENDPOINT_NAME,
             Body = file_content,
             ContentType = "application/json"
         )
-    print(response)
+    output_image = response["image"]
+    image_bytes = base64.b64decode(output_image)
+    image = Image.open(io.BytesIO(image_bytes))
+    image_array = np.array(image)
+
+    # upload the image to s3
+    
+    
     return {
         'statusCode': 200,
         'body': json.dumps(name)
