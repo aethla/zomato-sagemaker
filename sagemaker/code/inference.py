@@ -1,7 +1,5 @@
 import numpy as np
-import torch, os, io, cv2, boto3
-from PIL import Image
-from io import BytesIO
+import torch, os, io, cv2, base64
 from ultralytics import YOLO
 
 def model_fn(model_dir):
@@ -33,22 +31,14 @@ def predict_fn(input_data, model):
 def output_fn(prediction_output, content_type):
     print("Executing output_fn from inference.py ...")
     for r in prediction_output:
-        im_array = r.plot(probs=False,conf=False, boxes=False) 
-        im = Image.fromarray(im_array[..., ::-1])
+        # Visualize the results
+        for i, r in enumerate(prediction_output):
+            # Plot results image
+            im_bgr = r.plot()  # BGR-order numpy array
+            im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)  # RGB-order numpy array
+        
+            # Convert BytesIO to base64-encoded string
+            image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-        # Upload image to S3 bucket
-        buffer = BytesIO()
-        im.save(buffer, format='JPEG')
-        buffer.seek(0)
-
-        # Get S3 access key and secret access key from env
-        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-        bucket_name = 'your_bucket_name'
-        s3 = boto3.client('s3', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
-
-        # Upload image to S3 bucket
-        s3.upload_fileobj(buffer, bucket_name, 'result.jpg')
-
-    # Return JSON object indicating the image was uploaded
-    return {"message": "Image uploaded successfully to S3"}
+            # Return the image data as a JSON-serializable response
+            return {'image': image_data}
