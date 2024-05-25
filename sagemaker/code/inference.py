@@ -1,8 +1,10 @@
 import numpy as np
-import torch, os, io, cv2, base64
-from io import BytesIO
+import torch, os, cv2
+import tempfile
+import boto3
 from PIL import Image
 from ultralytics import YOLO
+from datetime import datetime
 
 def model_fn(model_dir):
     print("Executing model_fn from inference.py ...")
@@ -14,13 +16,13 @@ def model_fn(model_dir):
 
 def input_fn(request_body, request_content_type):
     print("Executing input_fn from inference.py ...")
-    if request_content_type:
-        jpg_original = np.load(io.BytesIO(request_body), allow_pickle=True)
-        jpg_as_np = np.frombuffer(jpg_original, dtype=np.uint8)
-        img = cv2.imdecode(jpg_as_np, flags=-1)
+    if request_content_type == 'image/jpeg':
+        # Convert the bytes back to an image array
+        image = np.frombuffer(request_body, np.uint8)
+        img = cv2.imdecode(image, cv2.IMREAD_COLOR)
+        return img
     else:
         raise Exception("Unsupported content type: " + request_content_type)
-    return img
     
 def predict_fn(input_data, model):
     print("Executing predict_fn from inference.py ...")
@@ -40,12 +42,27 @@ def output_fn(prediction_output, content_type):
             im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)  # RGB-order numpy array
             im =Image.fromarray(im_rgb[..., ::-1])
             
-            buffer = BytesIO()
-            im.save(buffer, format='JPEG')
-            buffer.seek(0)
-            
-            # Convert BytesIO to base64-encoded string
-            image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    # Save the image to a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    im.save(temp_file.name, 'JPEG')
+    temp_file.close()
 
-            # Return the image data as a JSON-serializable response
-            return {'image': image_data}
+    # Get S3 access key and secret access key from env
+    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+    bucket_name = 'adas-project-bucket'
+    s3 = boto3.client('s3', aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+
+    # Generate a timestamp to include in the S3 object path
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    s3_path = f"results/result_{timestamp}.jpg"
+
+    # Upload the temporary file to S3 bucket
+    with open(temp_file.name, 'rb') as file:
+        s3.upload_fileobj(file, bucket_name, s3_path)
+
+    # Remove the temporary file
+    os.remove(temp_file.name)
+
+    # Return JSON object with the path to the uploaded image
+    return {"message": "Image uploaded successfully to S3", "s3_path": s3_path}

@@ -1,9 +1,9 @@
-import json, os, io, boto3, base64
+import os, boto3
+import cv2
 import numpy as np
-from PIL import Image
 
 
-ENDPOINT_NAME = ""
+ENDPOINT_NAME = "zomato-images-serverless-endpoint"
 runtime= boto3.client("runtime.sagemaker")
 # Get S3 access key and secret access key from env
 aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID_s3')
@@ -14,27 +14,30 @@ s3 = boto3.client('s3', aws_access_key_id=aws_access_key_id, aws_secret_access_k
 def lambda_handler(event, context):
     print(event)
     body = event['body']
-    inputKey = body['inputKey']
-    outputKey = body['outputKey']
-    name = body['name']
+    input_key = body['inputKey']
     bucket_name = 'zomato-project-bucket'
 
-    fileObj = s3.get_object(Bucket=bucket_name, Key=inputKey)
+    # Step 1: Get the image from S3
+    fileObj = s3.get_object(Bucket=bucket_name, Key=input_key)
     file_content = fileObj['Body'].read()
-    response = runtime.invoke_endpoint(
-            EndpointName = ENDPOINT_NAME,
-            Body = file_content,
-            ContentType = "application/json"
-        )
-    output_image = response["image"]
-    image_bytes = base64.b64decode(output_image)
-    image = Image.open(io.BytesIO(image_bytes))
-    image_array = np.array(image)
 
-    # upload the image to s3
+    # Step 2: Convert the image bytes to a NumPy array
+    nparr = np.frombuffer(file_content, np.uint8)
     
+    # Step 3: Decode the NumPy array as an image
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    # Encode image as JPEG
+    _, encoded_img = cv2.imencode('.jpg', img)
+    payload = encoded_img.tobytes()
     
-    return {
-        'statusCode': 200,
-        'body': json.dumps(name)
-    }
+    response = runtime.invoke_endpoint(
+            EndpointName=ENDPOINT_NAME,
+            Body=payload,
+            ContentType="image/jpeg"
+        )
+
+    # Process the response from the endpoint
+    response_body = response['Body'].read()
+    return response_body
+
